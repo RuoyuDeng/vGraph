@@ -10,6 +10,8 @@ from itertools import combinations
 from collections import Counter
 import networkx as nx
 
+from IPython import *
+
 def normalized_overlap(g, node_1, node_2):
     """
     Function to calculate the normalized neighborhood overlap.
@@ -164,12 +166,18 @@ def calc_overlap_nmi(num_vertices, result_comm_list, ground_truth_comm_list):
             for c in clist:
                 f.write(' '.join(map(str, c)) + '\n')
 
+    # embed()
     try:
         write_to_file('./pred', result_comm_list)
         write_to_file('./gt', ground_truth_comm_list)
-        assert len(result_comm_list) == len(ground_truth_comm_list)
-        ret = check_output(["./bin/onmi", "pred", "gt"]).decode('utf-8')
-        return float(ret.split('\n')[0].split()[-1])
+        assert len(result_comm_list) == len(ground_truth_comm_list) # True
+
+        ret = check_output(["./onmi", "pred", "gt"]).decode('utf-8') # use the onmi program locally without installing it in the system
+        #ret = check_output(["./bin/onmi", "pred", "gt"]).decode('utf-8')
+        
+
+        # float(ret.split('\n')[0].split()[-1])
+        return float(ret.split('\n')[2].split()[-1]) # change index from 0 to 2
     except:
         print('calc_overlap_nmi failed.\n Please refer to this repo: https://github.com/eXascaleInfolab/OvpNMI')
 

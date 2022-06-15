@@ -14,6 +14,7 @@ import pandas as pd
 from tqdm import tqdm
 
 def load_data(dataset_str):
+    # FIXME: meaning of blog
     if dataset_str == 'blog':
         G, adj, features = graph_reader('./data/BlogCatalog-dataset/data/edges.csv')
     elif dataset_str == 'flickr':
