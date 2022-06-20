@@ -194,15 +194,15 @@ def get_overlapping_community(G, model, tpe=1):
     return communities
 
 
-if __name__ == '__main__':
-    args = parser.parse_args()
-    embedding_dim = args.embedding_dim
+if __name__ == '__main__': # execute the following if current file is exectued through cmd line: python3 current_file_name.py [-args]
+    args = parser.parse_args() 
+    embedding_dim = args.embedding_dim # automattically change the option name from "embedding-dim" into a attribute embedding_dim
     lr = args.lr
     epochs = args.epochs
     temp = 1.
     temp_min = 0.1
     ANNEAL_RATE = 0.00003
-
+    # TODO (June 15: Continue Reading Here)
     G, adj, gt_communities = load_dataset(args.dataset_str)
     adj_orig = adj
     adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)

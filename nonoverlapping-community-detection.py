@@ -25,8 +25,8 @@ import torch.nn.functional as F
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--model', type=str, default='s', help="models used")
-parser.add_argument('--lamda', type=float, default=.1, help="")
+parser.add_argument('--model', type=str, default='vGraph', help="models used")
+parser.add_argument('--lamda', type=float, default=0, help="")
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=1001, help='Number of epochs to train.')
 parser.add_argument('--embedding-dim', type=int, default=128, help='')
@@ -34,7 +34,8 @@ parser.add_argument('--lr', type=float, default=0.1, help='Initial learning rate
 parser.add_argument('--dropout', type=float, default=0., help='Dropout rate (1 - keep probability).')
 parser.add_argument('--dataset-str', type=str, default='cora', help='type of dataset.')
 parser.add_argument('--log-file', type=str, default='nonoverlapping.log', help='log path')
-# parser.add_argument('--task', type=str, default='community', help='type of dataset.')
+# these files are only used to do community detection, no need to put a option for switching tasks
+# parser.add_argument('--task', type=str, default='community', help='type of dataset.') 
 
 def logging(args, epochs, nmi, modularity):
     with open(args.log_file, 'a+') as f:
