@@ -28,6 +28,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from IPython import embed
+
 ## 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', type=str, default='vGraph', help="models used")
@@ -35,7 +37,7 @@ parser.add_argument('--lamda', type=float, default=0, help="")
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
 parser.add_argument('--epochs', type=int, default=5001, help='Number of epochs to train.')
 parser.add_argument('--embedding-dim', type=int, default=128, help='')
-parser.add_argument('--lr', type=float, default=0.1, help='Initial learning rate.')
+parser.add_argument('--lr', type=float, default=0.05, help='Initial learning rate.')
 parser.add_argument('--dropout', type=float, default=0., help='Dropout rate (1 - keep probability).')
 parser.add_argument('--dataset-str', type=str, default='facebook0', help='type of dataset.')
 parser.add_argument('--log-file', type=str, default='overlapping.log', help='log path')
@@ -43,10 +45,14 @@ parser.add_argument('--log-file', type=str, default='overlapping.log', help='log
 
 def logging(args, epochs, cur_loss, f1, nmi, jaccard, modularity):
     with open(args.log_file, 'a+') as f:
-        f.write('{},{},{},{},{},{},{},{},{},{}\n'.format('vGraph',
+        # f.write('{},{},{},{},{},{},{},{},{},{}\n'.format('vGraph',
+        #     args.dataset_str,
+        #     args.lr,
+        #     cur_loss, args.lamda, epochs,  nmi, modularity, f1, jaccard))
+        f.write('{},{},{},{},{},{},{}\n'.format('vGraph',
             args.dataset_str,
-            args.lr,
-            cur_loss, args.lamda, epochs, f1, nmi, jaccard, modularity))
+            args.lr, args.lamda, 
+            epochs, f1, jaccard))
 
 def write_to_file(fpath, clist):
     with open(fpath, 'w') as f:
@@ -175,13 +181,15 @@ def get_overlapping_community(G, model, tpe=1):
 
     n_nodes = G.number_of_nodes()
 
-    
     res = np.zeros((n_nodes, num_classes))
     for idx, e in enumerate(edges):
         if tpe == 0:
             res[e[0], :] += q[idx, :].cpu().data.numpy()
             res[e[1], :] += q[idx, :].cpu().data.numpy()
         else:
+            # if tpe = 1, then we have:
+            # res[i,j] indicating node u_i belong to community_j or not
+            # if res[i,j] > 0, then yes, otherwise it does not belong to
             res[e[0], q_argmax[idx]] += 1
             res[e[1], q_argmax[idx]] += 1
 
@@ -190,7 +198,9 @@ def get_overlapping_community(G, model, tpe=1):
         for j in range(num_classes):
             if res[i, j] > 0:
                 communities[j].append(i)
-    
+
+    # communities contain num_classes of list, each contains the node
+    # that belong to that class (community in this case)
     return communities
 
 
@@ -202,15 +212,20 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     temp = 1.
     temp_min = 0.1
     ANNEAL_RATE = 0.00003
-    # TODO (June 15: Continue Reading Here)
+    # (June 15: Continue Reading Here)
+
+    # by default, args.dataset_str = facebook0 (same loading as in nonoverlap case)
     G, adj, gt_communities = load_dataset(args.dataset_str)
+
+    # adj_orig is the sparse matrix of edge_node adjacency matrix
     adj_orig = adj
+    # embed()
+    
     adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)
     adj_orig.eliminate_zeros()
     categorical_dim = len(gt_communities)
     n_nodes = G.number_of_nodes()
     print(n_nodes, categorical_dim)
-
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = GCNModelGumbel(adj.shape[0], embedding_dim, categorical_dim, args.dropout, device)
@@ -225,6 +240,10 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     n_nodes = G.number_of_nodes()
     print('len(train_edges)', len(train_edges))
     print('calculating normalized_overlap')
+    
+    # overlap: the alpha, regularization weight in the paper
+    # overlap = for every edge (u,v) in graph G, 
+    # = the number of intersection of neighbours of u and v / the number of union of neighbours of u and v
     overlap = torch.Tensor([normalized_overlap(G,u,v) for u,v in train_edges]).to(device)
     # overlap = torch.Tensor([(G.degree(u)-G.degree(v))**2 for u,v in train_edges]).to(device)
     # overlap = torch.Tensor([1. for u,v in train_edges]).to(device)
@@ -256,11 +275,14 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             # res /= res.sum(dim=-1).unsqueeze(-1).detach()
             # tmp = F.mse_loss(res[tmp_w], res[tmp_c])
 
+            # tmp: the distance between two distributions (squared difference in our experiments)
+            # tmp = avg(sum([p(z|c) - p(z|w)]^2)), such term exits for every pair of edge (u,v)
             tmp = ((res[tmp_w] - res[tmp_c])**2).mean(dim=-1)
             assert overlap.shape == tmp.shape
             smoothing_loss = (overlap*tmp).mean()
+            # regularization term = lamda (or called overlap) * tmp
             loss += args.lamda * smoothing_loss
-
+            # embed()
         loss.backward()
         cur_loss = loss.item()
 
@@ -279,6 +301,8 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             assignment = get_assignment(G, model, categorical_dim)
             modularity = classical_modularity_calculator(G, assignment)
             
+            # communities: group the nodes with same community in the same list,
+            # it holds all these lists
             communities = get_overlapping_community(G, model)
             nmi = calc_overlap_nmi(n_nodes, communities, gt_communities)
             f1 = calc_f1(n_nodes, communities, gt_communities)
@@ -302,7 +326,8 @@ if __name__ == '__main__': # execute the following if current file is exectued t
                               "nmi", nmi, "f1", f1, 'jaccard', jaccard, "omega", omega)
             logging(args, epoch, cur_loss, f1, nmi, jaccard, modularity)
 
-            cur_lr = cur_lr * .95
+            # cur_lr = cur_lr * .95
+            cur_lr = cur_lr * .99
             for param_group in optimizer.param_groups:
                 param_group['lr'] = cur_lr
             

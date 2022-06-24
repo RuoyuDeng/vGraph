@@ -348,17 +348,28 @@ def load_cora_citeseer(ds):
     mapping = {}
     label_mapping = {}
     membership = {}
+    # what does the content mean here?
+    # tmp[0] is the node name (node u)
+    # tmp[-1] is the community (membership) label of u
     for line in content:
         tmp = line.strip().split('\t')
+        # give index to every node: u0 -> 0, u1 -> 1
         mapping[tmp[0]] = len(mapping)
         try:
             lab = label_mapping[tmp[-1]]
         except:
+            # similary as node mapping, map label to indices
             label_mapping[tmp[-1]] = len(label_mapping)
+            # lab is the len(label_mapping), which is the index representation of labels
             lab = label_mapping[tmp[-1]]
 
+        # dict map where keys: index version of nodes. values: index version of labels of the corresponding node
         membership[mapping[tmp[0]]] = lab
+
+
+    # assuming all node (each line of *.content file) has a label
     assert len(membership) == len(mapping)
+
 
     G = nx.Graph()
     with open(edge_path, 'r') as f:
@@ -375,6 +386,8 @@ def load_cora_citeseer(ds):
     assert len(mapping) ==G.number_of_nodes()
     
     assert max(list(G.nodes())) == G.number_of_nodes()-1
+
+    # change membership from dict to list
     membership = [membership[i] for i in range(G.number_of_nodes())]
     return G, nx.adjacency_matrix(G), membership
 
@@ -473,6 +486,11 @@ def read_facebook(ds, relabel=True):
             for line in f:
                 e0, e1 = line.strip().split('\t')
                 # print(e0, e1)
+
+                # try-except: 
+                # give every node a index as its value
+                # no duplicate will be created
+                # {e0:0, e1:1, e2:2, e3:3.....}
                 try:
                     tmp = mapping[e0]
                 except:
@@ -483,6 +501,7 @@ def read_facebook(ds, relabel=True):
                 except:
                     mapping[e1] = len(mapping)
 
+                # direction did not matter in vGraph
                 G.add_edge(e0, e1)
                 G.add_edge(e1, e0)
 
@@ -492,14 +511,21 @@ def read_facebook(ds, relabel=True):
                 nodes = re.split(' |\t', line.strip())[1:]
                 for n in nodes:
                     try:
+                        # used to avoid duplicates
                         tmp = mapping[n]
                     except:
                         mapping[n] = len(mapping)
+                # communities store the index_version of nodes
+                # ls = [[3,5], [29]], ls[0] stores the nodes in community 0
+                # ls[1] stores the nodes in community 1 (in index format, not str)
 
+
+                #FIXME: We do not have community labelled for us
                 communities.append(list([mapping[x] for x in nodes]))
 
-
-        G = nx.relabel_nodes(G, mapping)
+        # relabel the nodes from n0, n1, n2 -> 0, 1 ,2 with index, such
+        # mapping can be defined by user
+        G = nx.relabel_nodes(G, mapping) 
         return G, nx.adjacency_matrix(G), communities
     else:
         assert False
