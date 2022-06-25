@@ -5,7 +5,7 @@ import os
 import networkx as nx 
 import numpy as np
 import scipy.sparse as sp
-# import torch
+import torch
 from sklearn.metrics import roc_auc_score, average_precision_score
 
 from sklearn.cluster import KMeans
@@ -502,6 +502,9 @@ def read_facebook(ds, relabel=True):
                     mapping[e1] = len(mapping)
 
                 # direction did not matter in vGraph
+                # u -> v
+                # u r1 v, u r2 v
+                
                 G.add_edge(e0, e1)
                 G.add_edge(e1, e0)
 
@@ -519,7 +522,7 @@ def read_facebook(ds, relabel=True):
                 # ls = [[3,5], [29]], ls[0] stores the nodes in community 0
                 # ls[1] stores the nodes in community 1 (in index format, not str)
 
-
+                # u r1 v, u r2 v -> A[u][v] = 2 (or 1, depends)
                 #FIXME: We do not have community labelled for us
                 communities.append(list([mapping[x] for x in nodes]))
 
@@ -756,9 +759,63 @@ def read_flickr(num_communities, relabel=True):
     # input()
     return G, nx.adjacency_matrix(G), gt_communities
 
+def read_graph_data(ds, relabel=True):
+
+    # tsdata_path = './data/{}/test.txt'.format(ds)
+    # vadata_path = './data/{}/valid.txt'.format(ds)
+    
+    trdata_path = './data/{}/train.txt'.format(ds)
+    # tryout_path = './data/{}/tryout.txt'.format(ds)
+    # data_paths = [tsdata_path, trdata_path, vadata_path]
+    path = trdata_path
+    if relabel:
+        mapping = {}
+        G = nx.MultiDiGraph()
+        with open(path,"r") as f:
+            for line in f:
+                u,r,v = line.strip().split('\t')
+
+                try:
+                    tmp = mapping[u]
+                except:
+                    mapping[u] = len(mapping)
+
+                try:
+                    tmp = mapping[v]
+                except:
+                    mapping[v] = len(mapping)
+                
+                # only u->v is needed
+                G.add_edge(u,v)
+
+    # # randomly drop 50% of the edges -> randomly take 5000 edges as batch size
+    # torch.manual_seed(2022)
+    # edge_num = G.number_of_edges()
+    # rand_idx = list(torch.randperm(edge_num)[5000:])
+    # all_edges = list(G.edges())
+    # remove_edges = [all_edges[i] for i in rand_idx]
+    # G.remove_edges_from(remove_edges)
+
+    # remove_nodes = []
+    # for u,v in remove_edges:
+    #     if not u in remove_nodes:
+    #         remove_nodes.append(u)
+    #     if not v in remove_nodes:
+    #         remove_nodes.append(v)    
+    # G.remove_nodes_from(remove_nodes)
+    
+    #FIXME: ground truth community label?
+    communities = list(range(12))
+
+    G = nx.relabel_nodes(G,mapping)
+    return G, nx.adjacency_matrix(G),communities
+
 def load_dataset(ds, relabel=True):
     if 'flickr' in ds:
         G, adj, gt_communities = read_flickr(int(ds[6:]))
+    
+    elif ds in ['FB15k-237','WN18RR']:
+        G, adj, gt_communities = read_graph_data(ds)
 
     elif ds == 'facebook':
         G, adj, gt_communities = read_all_facebook()
@@ -775,7 +832,7 @@ def load_dataset(ds, relabel=True):
         G, adj, gt_communities = load_cora_citeseer(ds)
     elif ds in ['cornell', 'texas', 'washington', 'wisconsin']:
         G, adj, gt_communities = load_webkb(ds)
-
+    
     else:
         assert False
 
