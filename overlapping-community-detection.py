@@ -128,6 +128,7 @@ class GCNModelGumbel(nn.Module):
 
         self.community_embeddings = nn.Linear(embedding_dim, categorical_dim, bias=False).to(device)
         self.node_embeddings = nn.Embedding(size, embedding_dim)
+        self.relation_embeddings = nn.Embedding(size, embedding_dim)
 
         # self.r_embedding
         #self.contextnode_embeddings = nn.Embedding(size, embedding_dim)
@@ -146,13 +147,13 @@ class GCNModelGumbel(nn.Module):
                 if m.bias is not None:
                     m.bias.data.fill_(0.0)
 
-    def forward(self, w, c, temp):
+    def forward(self, w, c, r, temp):
 
         w = self.node_embeddings(w).to(self.device)
-        # r = self.r_embed(r)
         c = self.node_embeddings(c).to(self.device)
+        r = self.relation_embeddings(r).to(self.device)
 
-        q = self.community_embeddings(w*c) # w * r * c
+        q = self.community_embeddings(w*c*r) # w * r * c
         # q.shape: [batch_size, categorical_dim]
         # z = self._sample_discrete(q, temp)
         if self.training:
@@ -217,13 +218,13 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     ANNEAL_RATE = 0.00003
     torch.manual_seed(2022)
    
-
     G, adj, gt_communities = load_dataset(args.dataset_str)
 
     # adj_orig is the sparse matrix of edge_node adjacency matrix
     adj_orig = adj
     
-    adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)
+    
+    # adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)
     adj_orig.eliminate_zeros()
     categorical_dim = len(gt_communities)
     n_nodes = G.number_of_nodes()
@@ -239,10 +240,11 @@ if __name__ == '__main__': # execute the following if current file is exectued t
 
     #train_edges = np.concatenate([train_edges, val_edges, test_edges])
     train_edges = [(u,v) for u,v in G.edges()]
+    train_relations = [G.edges[u,v,c]["relation"] for u,v,c in G.edges]
+
     n_nodes = G.number_of_nodes()
     print('len(train_edges)', len(train_edges))
     print('calculating normalized_overlap')
-    
     # overlap: the alpha, regularization weight in the paper
     # overlap = for every edge (u,v) in graph G, 
     # = the number of intersection of neighbours of u and v / the number of union of neighbours of u and v
@@ -251,23 +253,28 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     # overlap = torch.Tensor([1. for u,v in train_edges]).to(device)
     # overlap = torch.Tensor([float(max(G.degree(u), G.degree(v))**2) for u,v in train_edges]).to(device)
     cur_lr = args.lr
+
     for epoch in range(epochs):
         #np.random.shuffle(train_edges)
 
         t = time.time()
         
         batch = torch.LongTensor(train_edges)
+        batch_r = torch.LongTensor(train_relations)
         assert batch.shape == (len(train_edges), 2)
+        assert batch_r.shape[0] == len(train_relations)
 
         model.train()
         optimizer.zero_grad()
-
-        rand_idx = torch.randperm(batch.size(0))[5000:]
+        
+        # everytime, train from 5000 edges randomly sampled from all edges, along with the corresponding relations
+        rand_idx = torch.randperm(batch.size(0))[:5000]
         batch = batch[rand_idx]
         w = batch[:,0]
         c = batch[:,1]
+        r = batch_r[rand_idx]
         
-        recon, q, prior = model(w, c, temp)
+        recon, q, prior = model(w, c, r, temp)
         loss = loss_function(recon, q, prior, c.to(device), None, None)
 
         if args.lamda > 0:
