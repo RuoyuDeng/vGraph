@@ -215,10 +215,9 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     temp = 1.
     temp_min = 0.1
     ANNEAL_RATE = 0.00003
-    
-    # (June 15: Continue Reading Here)
+    torch.manual_seed(2022)
+   
 
-    # by default, args.dataset_str = facebook0 (same loading as in nonoverlap case)
     G, adj, gt_communities = load_dataset(args.dataset_str)
 
     # adj_orig is the sparse matrix of edge_node adjacency matrix
@@ -262,16 +261,12 @@ if __name__ == '__main__': # execute the following if current file is exectued t
 
         model.train()
         optimizer.zero_grad()
-        # embed()
-        # w = torch.cat((batch[:, 0], batch[:, 1]))
-        # c = torch.cat((batch[:, 1], batch[:, 0]))
-        
-        # rand_idx = torch.randperm(batch.size(0))[:5000]
+
+        rand_idx = torch.randperm(batch.size(0))[5000:]
+        batch = batch[rand_idx]
         w = batch[:,0]
         c = batch[:,1]
-        # embed()
-        # CUDA out of memory. Tried to allocate 14.71 GiB (GPU 1; 10.76 GiB total capacity; 614.40 MiB already allocated; 9.20 GiB free; 642.00 MiB reserved in total by PyTorch)
-        # graph G seems to be too big -> leave with only 5000 edges to train as batch size
+        
         recon, q, prior = model(w, c, temp)
         loss = loss_function(recon, q, prior, c.to(device), None, None)
 
@@ -309,36 +304,40 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             
             model.eval()
             
-            assignment = get_assignment(G, model, categorical_dim)
-            modularity = classical_modularity_calculator(G, assignment)
+            # TODO: implement our own performance measure metric
+            # 1. Topic Quality
+            # 2. Link Prediction
+
+            # assignment = get_assignment(G, model, categorical_dim)
+            # modularity = classical_modularity_calculator(G, assignment)
             
-            # communities: group the nodes with same community in the same list,
-            # it holds all these lists
-            communities = get_overlapping_community(G, model)
-            # nmi = calc_overlap_nmi(n_nodes, communities, gt_communities)
-            f1 = calc_f1(n_nodes, communities, gt_communities)
-            jaccard = calc_jaccard(n_nodes, communities, gt_communities)
-            # omega = calc_omega(n_nodes, communities, gt_communities)
+            # # communities: group the nodes with same community in the same list,
+            # # it holds all these lists
+            # communities = get_overlapping_community(G, model)
+            # # nmi = calc_overlap_nmi(n_nodes, communities, gt_communities)
+            # f1 = calc_f1(n_nodes, communities, gt_communities)
+            # jaccard = calc_jaccard(n_nodes, communities, gt_communities)
+            # # omega = calc_omega(n_nodes, communities, gt_communities)
 
-            nmi = 0
-            omega = 0
+            # nmi = 0
+            # omega = 0
 
-            if args.lamda > 0:
-                print("Epoch:", '%04d' % (epoch + 1),
-                              "lr:", '{:.5f}'.format(cur_lr),
-                              "temp:", '{:.5f}'.format(temp),
-                              "train_loss=", "{:.5f}".format(cur_loss),
-                              "smoothing_loss=", "{:.5f}".format(args.lamda * smoothing_loss.item()),
-                              "modularity=", "{:.5f}".format(modularity),
-                              "nmi", nmi, "f1", f1, 'jaccard', jaccard, "omega", omega)
-            else:
-                print("Epoch:", '%04d' % (epoch + 1),
-                              "lr:", '{:.5f}'.format(cur_lr),
-                              "temp:", '{:.5f}'.format(temp),
-                              "train_loss=", "{:.5f}".format(cur_loss),
-                              "modularity=", "{:.5f}".format(modularity),
-                              "nmi", nmi, "f1", f1, 'jaccard', jaccard, "omega", omega)
-            logging(args, epoch, cur_loss, f1, nmi, jaccard, modularity)
+            # if args.lamda > 0:
+            #     print("Epoch:", '%04d' % (epoch + 1),
+            #                   "lr:", '{:.5f}'.format(cur_lr),
+            #                   "temp:", '{:.5f}'.format(temp),
+            #                   "train_loss=", "{:.5f}".format(cur_loss),
+            #                   "smoothing_loss=", "{:.5f}".format(args.lamda * smoothing_loss.item()),
+            #                   "modularity=", "{:.5f}".format(modularity),
+            #                   "nmi", nmi, "f1", f1, 'jaccard', jaccard, "omega", omega)
+            # else:
+            #     print("Epoch:", '%04d' % (epoch + 1),
+            #                   "lr:", '{:.5f}'.format(cur_lr),
+            #                   "temp:", '{:.5f}'.format(temp),
+            #                   "train_loss=", "{:.5f}".format(cur_loss),
+            #                   "modularity=", "{:.5f}".format(modularity),
+            #                   "nmi", nmi, "f1", f1, 'jaccard', jaccard, "omega", omega)
+            # logging(args, epoch, cur_loss, f1, nmi, jaccard, modularity)
 
             # cur_lr = cur_lr * .95
             cur_lr = cur_lr * .99
