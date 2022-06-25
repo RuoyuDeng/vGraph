@@ -130,7 +130,6 @@ class GCNModelGumbel(nn.Module):
         self.node_embeddings = nn.Embedding(size, embedding_dim)
         self.relation_embeddings = nn.Embedding(size, embedding_dim)
 
-        # self.r_embedding
         #self.contextnode_embeddings = nn.Embedding(size, embedding_dim)
 
         self.decoder = nn.Sequential(
@@ -164,13 +163,16 @@ class GCNModelGumbel(nn.Module):
 
         prior = self.community_embeddings(w)
         prior = F.softmax(prior, dim=-1)
-        # prior.shape [batch_num_nodes, 
+
+        # w: N x ED, c, N x ED, -> N x N (dot product)
+        wT = torch.transpose(w,0,1)
+        prob = torch.sigmoid(torch.mm(c,wT))
 
         # z.shape [batch_size, categorical_dim]
         new_z = torch.mm(z, self.community_embeddings.weight)
         recon = self.decoder(new_z)
             
-        return recon, F.softmax(q, dim=-1), prior
+        return recon, F.softmax(q, dim=-1), prior, prob
 
 def get_overlapping_community(G, model, tpe=1):
     model.eval()
@@ -258,7 +260,9 @@ if __name__ == '__main__': # execute the following if current file is exectued t
         #np.random.shuffle(train_edges)
 
         t = time.time()
-        
+        # FIXME: In the original code, len(train_edges) = num_nodes because there is only ONE edge between each pair of nodes
+        # however, in our case, there can be multiple edges between nodes.
+        # need to change from [(u,v0), (u,v1), (u,v2) ...] -> (u,[v0,v1,v2...])
         batch = torch.LongTensor(train_edges)
         batch_r = torch.LongTensor(train_relations)
         assert batch.shape == (len(train_edges), 2)
@@ -274,7 +278,7 @@ if __name__ == '__main__': # execute the following if current file is exectued t
         c = batch[:,1]
         r = batch_r[rand_idx]
         
-        recon, q, prior = model(w, c, r, temp)
+        recon, q, prior, link_prob = model(w, c, r, temp)
         loss = loss_function(recon, q, prior, c.to(device), None, None)
 
         if args.lamda > 0:
@@ -295,7 +299,6 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             smoothing_loss = (overlap*tmp).mean()
             # regularization term = lamda (or called overlap) * tmp
             loss += args.lamda * smoothing_loss
-            # embed()
         loss.backward()
         cur_loss = loss.item()
 
@@ -312,8 +315,11 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             model.eval()
             
             # TODO: implement our own performance measure metric
-            # 1. Topic Quality
-            # 2. Link Prediction
+            # 1. Topic Quality -> need to know the true labels?
+            # 2. Link Prediction -> sigmoid(embedding(u) outer_product? embedding(v)) = the prob distribution between u and v
+
+            
+
 
             # assignment = get_assignment(G, model, categorical_dim)
             # modularity = classical_modularity_calculator(G, assignment)
