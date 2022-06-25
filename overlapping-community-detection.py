@@ -147,7 +147,7 @@ class GCNModelGumbel(nn.Module):
                     m.bias.data.fill_(0.0)
 
     def forward(self, w, c, r, temp):
-
+    
         w = self.node_embeddings(w).to(self.device)
         c = self.node_embeddings(c).to(self.device)
         r = self.relation_embeddings(r).to(self.device)
@@ -240,9 +240,33 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     history_valap = []
     history_mod = []
 
+    # FIXME: In the original code, len(train_edges) = num_nodes because there is only ONE edge between each pair of nodes
+    # however, in our case, there can be multiple edges between nodes.
+    # need to change from [(u,v0), (u,v1), (u,v2) ...] -> (u,[v0,v1,v2...])
+
     #train_edges = np.concatenate([train_edges, val_edges, test_edges])
-    train_edges = [(u,v) for u,v in G.edges()]
-    train_relations = [G.edges[u,v,c]["relation"] for u,v,c in G.edges]
+    # dict -> u: [v0, v1, v2....], how many edges every u has, len(train_edges) = num_of_nodes
+    train_edges = {}
+    for u,v in G.edges():
+        if u in train_edges.keys():
+            train_edges[u].append(v)
+        else:
+            train_edges[u] = [v]
+        
+    # train_edges = [(u,v) for u,v in G.edges()]
+
+    # dict -> u: [r0, r1, r2....], how many diff types of relations every u has, len(train_relations) = num_of_nodes
+    train_relations = {}
+    for u,v,c in G.edges:
+        if u in train_edges.keys():
+            relation = G.edges[u,v,c]["relation"]
+            if u in train_relations.keys():
+                if relation not in train_relations[u]:
+                    train_relations[u].append(relation)
+            else:
+                train_relations[u] = [relation]
+    
+    # train_relations = [G.edges[u,v,c]["relation"] for u,v,c in G.edges]
 
     n_nodes = G.number_of_nodes()
     print('len(train_edges)', len(train_edges))
@@ -260,9 +284,13 @@ if __name__ == '__main__': # execute the following if current file is exectued t
         #np.random.shuffle(train_edges)
 
         t = time.time()
-        # FIXME: In the original code, len(train_edges) = num_nodes because there is only ONE edge between each pair of nodes
-        # however, in our case, there can be multiple edges between nodes.
-        # need to change from [(u,v0), (u,v1), (u,v2) ...] -> (u,[v0,v1,v2...])
+        
+        # FIXME: what exactly is our batch?
+        # the original paper propose: batch = [(u0,v0), (u1,v1)....], and it implicitly included the edge information
+        # but we now have: E = {u0:[v0,v1,v2...], u1: [v3,v5,....]}
+        # and a relation: R = {u0:[r1,r3,...], u1: [r0...]}, |E| = |R|
+        # how to decide the batch for nodes and relations?
+
         batch = torch.LongTensor(train_edges)
         batch_r = torch.LongTensor(train_relations)
         assert batch.shape == (len(train_edges), 2)

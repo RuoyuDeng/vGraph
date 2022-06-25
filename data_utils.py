@@ -793,6 +793,7 @@ def read_graph_data(ds, relabel=True):
                 
                 # only u->v is needed
                 G.add_edge(u,v,relation=r)
+                G.add_edge(v,u,relation=r)
 
     # # randomly drop 50% of the edges -> randomly take 5000 edges as batch size
     # torch.manual_seed(2022)
@@ -815,7 +816,7 @@ def read_graph_data(ds, relabel=True):
 
     G = nx.relabel_nodes(G,mapping)
 
-    # update relations of edges
+    # map relations of edges to index-version
     for u,v,c in G.edges:
         relation = G.edges[u,v,c]["relation"]
         G.edges[u,v,c]["relation"] = r_mapping[relation]
