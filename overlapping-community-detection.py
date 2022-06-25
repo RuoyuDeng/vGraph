@@ -39,7 +39,7 @@ parser.add_argument('--epochs', type=int, default=5001, help='Number of epochs t
 parser.add_argument('--embedding-dim', type=int, default=128, help='')
 parser.add_argument('--lr', type=float, default=0.05, help='Initial learning rate.')
 parser.add_argument('--dropout', type=float, default=0., help='Dropout rate (1 - keep probability).')
-parser.add_argument('--dataset-str', type=str, default='facebook0', help='type of dataset.')
+parser.add_argument('--dataset-str', type=str, default='FB15k-237', help='type of dataset.')
 parser.add_argument('--log-file', type=str, default='overlapping.log', help='log path')
 # parser.add_argument('--task', type=str, default='community', help='type of dataset.')
 
@@ -128,6 +128,8 @@ class GCNModelGumbel(nn.Module):
 
         self.community_embeddings = nn.Linear(embedding_dim, categorical_dim, bias=False).to(device)
         self.node_embeddings = nn.Embedding(size, embedding_dim)
+
+        # self.r_embedding
         #self.contextnode_embeddings = nn.Embedding(size, embedding_dim)
 
         self.decoder = nn.Sequential(
@@ -147,9 +149,10 @@ class GCNModelGumbel(nn.Module):
     def forward(self, w, c, temp):
 
         w = self.node_embeddings(w).to(self.device)
+        # r = self.r_embed(r)
         c = self.node_embeddings(c).to(self.device)
 
-        q = self.community_embeddings(w*c)
+        q = self.community_embeddings(w*c) # w * r * c
         # q.shape: [batch_size, categorical_dim]
         # z = self._sample_discrete(q, temp)
         if self.training:
@@ -212,6 +215,7 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     temp = 1.
     temp_min = 0.1
     ANNEAL_RATE = 0.00003
+    
     # (June 15: Continue Reading Here)
 
     # by default, args.dataset_str = facebook0 (same loading as in nonoverlap case)
@@ -219,7 +223,6 @@ if __name__ == '__main__': # execute the following if current file is exectued t
 
     # adj_orig is the sparse matrix of edge_node adjacency matrix
     adj_orig = adj
-    # embed()
     
     adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)
     adj_orig.eliminate_zeros()
@@ -227,7 +230,7 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     n_nodes = G.number_of_nodes()
     print(n_nodes, categorical_dim)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     model = GCNModelGumbel(adj.shape[0], embedding_dim, categorical_dim, args.dropout, device)
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
@@ -253,14 +256,22 @@ if __name__ == '__main__': # execute the following if current file is exectued t
         #np.random.shuffle(train_edges)
 
         t = time.time()
+        
         batch = torch.LongTensor(train_edges)
         assert batch.shape == (len(train_edges), 2)
 
         model.train()
         optimizer.zero_grad()
-
-        w = torch.cat((batch[:, 0], batch[:, 1]))
-        c = torch.cat((batch[:, 1], batch[:, 0]))
+        # embed()
+        # w = torch.cat((batch[:, 0], batch[:, 1]))
+        # c = torch.cat((batch[:, 1], batch[:, 0]))
+        
+        # rand_idx = torch.randperm(batch.size(0))[:5000]
+        w = batch[:,0]
+        c = batch[:,1]
+        # embed()
+        # CUDA out of memory. Tried to allocate 14.71 GiB (GPU 1; 10.76 GiB total capacity; 614.40 MiB already allocated; 9.20 GiB free; 642.00 MiB reserved in total by PyTorch)
+        # graph G seems to be too big -> leave with only 5000 edges to train as batch size
         recon, q, prior = model(w, c, temp)
         loss = loss_function(recon, q, prior, c.to(device), None, None)
 
@@ -304,10 +315,13 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             # communities: group the nodes with same community in the same list,
             # it holds all these lists
             communities = get_overlapping_community(G, model)
-            nmi = calc_overlap_nmi(n_nodes, communities, gt_communities)
+            # nmi = calc_overlap_nmi(n_nodes, communities, gt_communities)
             f1 = calc_f1(n_nodes, communities, gt_communities)
             jaccard = calc_jaccard(n_nodes, communities, gt_communities)
-            omega = calc_omega(n_nodes, communities, gt_communities)
+            # omega = calc_omega(n_nodes, communities, gt_communities)
+
+            nmi = 0
+            omega = 0
 
             if args.lamda > 0:
                 print("Epoch:", '%04d' % (epoch + 1),

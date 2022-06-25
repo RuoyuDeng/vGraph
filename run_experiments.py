@@ -33,6 +33,9 @@ def run_experiment(overlap,multi_hyper):
     elif not multi_hyper and overlap:
         cmd = "python3 " + run_file
         fb_list = [0, 107, 1684, 1912, 3437, 348, 3980, 414, 686, 698]
+        # fb_list = [1684, 1912, 3437]
+        # fb_list = [348, 3980, 414]
+        # fb_list = [698]
         call_list = cmd.split(" ")
         call_list.append("--dataset-str")
         call_list.append("")

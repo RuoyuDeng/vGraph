@@ -246,7 +246,7 @@ if __name__ == '__main__':
         model.train()
         optimizer.zero_grad()
 
-        # FIXME: Why making w and c: the nodes arranged in 2 diff orders? (edges have 2 directions?)
+        # FIXME: Why making w and c: the nodes arranged in 2 diff orders? (edges have 2 directions)
         # w.shape: [10556] 
         # c.shape: [10556]
         # batch.shape: [5278,2] -> [numof_train_edges, 2: the number of nodes for 1 edge]
