@@ -253,7 +253,7 @@ if __name__ == '__main__': # execute the following if current file is exectued t
         else:
             train_edges[u] = [v]
         
-    # train_edges = [(u,v) for u,v in G.edges()]
+    all_edges = [(u,v) for u,v in G.edges()]
 
     # dict -> u: [r0, r1, r2....], how many diff types of relations every u has, len(train_relations) = num_of_nodes
     train_relations = {}
@@ -274,7 +274,11 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     # overlap: the alpha, regularization weight in the paper
     # overlap = for every edge (u,v) in graph G, 
     # = the number of intersection of neighbours of u and v / the number of union of neighbours of u and v
-    overlap = torch.Tensor([normalized_overlap(G,u,v) for u,v in train_edges]).to(device)
+    # FIXME: how to calculate overlap can be hard to tell, because there is more than 1 edge between u and v
+    # how to make it same shape as len(train_edges) (num of nodes)
+    # overlap = torch.Tensor([normalized_overlap(G,u,v) for u,v in all_edges]).to(device)
+    overlap = 0
+
     # overlap = torch.Tensor([(G.degree(u)-G.degree(v))**2 for u,v in train_edges]).to(device)
     # overlap = torch.Tensor([1. for u,v in train_edges]).to(device)
     # overlap = torch.Tensor([float(max(G.degree(u), G.degree(v))**2) for u,v in train_edges]).to(device)
@@ -291,20 +295,24 @@ if __name__ == '__main__': # execute the following if current file is exectued t
         # and a relation: R = {u0:[r1,r3,...], u1: [r0...]}, |E| = |R|
         # how to decide the batch for nodes and relations?
 
-        batch = torch.LongTensor(train_edges)
-        batch_r = torch.LongTensor(train_relations)
-        assert batch.shape == (len(train_edges), 2)
-        assert batch_r.shape[0] == len(train_relations)
-
+        # batch = torch.LongTensor(train_edges)
+        # batch_r = torch.LongTensor(train_relations)
+        # assert batch.shape == (len(train_edges), 2)
+        # assert batch_r.shape[0] == len(train_relations)
+        batch = torch.LongTensor(list(train_edges.keys()))
+        batch_r = batch
         model.train()
         optimizer.zero_grad()
         
         # everytime, train from 5000 edges randomly sampled from all edges, along with the corresponding relations
-        rand_idx = torch.randperm(batch.size(0))[:5000]
-        batch = batch[rand_idx]
-        w = batch[:,0]
-        c = batch[:,1]
-        r = batch_r[rand_idx]
+        # rand_idx = torch.randperm(batch.size(0))[:5000]
+        # batch = batch[rand_idx]
+        # w = batch[:,0]
+        # c = batch[:,1]
+        # r = batch_r[rand_idx]
+        w = batch
+        c = batch
+        r = batch_r
         
         recon, q, prior, link_prob = model(w, c, r, temp)
         loss = loss_function(recon, q, prior, c.to(device), None, None)
@@ -344,11 +352,9 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             
             # TODO: implement our own performance measure metric
             # 1. Topic Quality -> need to know the true labels?
-            # 2. Link Prediction -> sigmoid(embedding(u) outer_product? embedding(v)) = the prob distribution between u and v
+            # 2. Link Prediction -> sigmoid(embedding(u) dot_product embedding(v)) = the prob distribution between u and v
 
             
-
-
             # assignment = get_assignment(G, model, categorical_dim)
             # modularity = classical_modularity_calculator(G, assignment)
             

@@ -791,7 +791,7 @@ def read_graph_data(ds, relabel=True):
                 except:
                     r_mapping[r] = len(r_mapping)
                 
-                # only u->v is needed
+                # only u->v is needed? (or bi-directions)
                 G.add_edge(u,v,relation=r)
                 G.add_edge(v,u,relation=r)
 
