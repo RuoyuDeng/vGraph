@@ -128,8 +128,8 @@ class GCNModelGumbel(nn.Module):
 
         self.community_embeddings = nn.Linear(embedding_dim, categorical_dim, bias=False).to(device)
         self.node_embeddings = nn.Embedding(size, embedding_dim)
+        self.relation_embeddings = nn.Embedding(size, embedding_dim)
 
-        # self.r_embedding
         #self.contextnode_embeddings = nn.Embedding(size, embedding_dim)
 
         self.decoder = nn.Sequential(
@@ -146,13 +146,15 @@ class GCNModelGumbel(nn.Module):
                 if m.bias is not None:
                     m.bias.data.fill_(0.0)
 
-    def forward(self, w, c, temp):
-
+    def forward(self, w, c, r, temp):
+    
         w = self.node_embeddings(w).to(self.device)
-        # r = self.r_embed(r)
         c = self.node_embeddings(c).to(self.device)
+        r = self.relation_embeddings(r).to(self.device)
 
-        q = self.community_embeddings(w*c) # w * r * c
+        # we learn from every edge, thus w,c,r has shape [num_of_edges, embedding_dim]
+
+        q = self.community_embeddings(w*c*r) # w * r * c
         # q.shape: [batch_size, categorical_dim]
         # z = self._sample_discrete(q, temp)
         if self.training:
@@ -163,13 +165,21 @@ class GCNModelGumbel(nn.Module):
 
         prior = self.community_embeddings(w)
         prior = F.softmax(prior, dim=-1)
-        # prior.shape [batch_num_nodes, 
+
+        # w: N x ED, c, N x ED, -> N x N (dot product)
+        wT = torch.transpose(w,0,1)
+        prob = torch.sigmoid(torch.mm(c,wT))
 
         # z.shape [batch_size, categorical_dim]
         new_z = torch.mm(z, self.community_embeddings.weight)
-        recon = self.decoder(new_z)
+
+        # decoder needs to output 2 embeddings: 1. R x K, 2. V x K, where 
+        # R: num of relations
+        # K: embedding dimension
+        # V: number of nodes
+        recon = self.decoder(new_z) 
             
-        return recon, F.softmax(q, dim=-1), prior
+        return recon, F.softmax(q, dim=-1), prior, prob
 
 def get_overlapping_community(G, model, tpe=1):
     model.eval()
@@ -217,13 +227,14 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     ANNEAL_RATE = 0.00003
     torch.manual_seed(2022)
    
-
+    # randomly assign some communities number
     G, adj, gt_communities = load_dataset(args.dataset_str)
 
     # adj_orig is the sparse matrix of edge_node adjacency matrix
     adj_orig = adj
     
-    adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)
+    
+    # adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)
     adj_orig.eliminate_zeros()
     categorical_dim = len(gt_communities)
     n_nodes = G.number_of_nodes()
@@ -231,43 +242,87 @@ if __name__ == '__main__': # execute the following if current file is exectued t
 
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     model = GCNModelGumbel(adj.shape[0], embedding_dim, categorical_dim, args.dropout, device)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    optimizer = optim.Adam(model.parameters(), lr=lr) # change optmizer
 
     hidden_emb = None
     history_valap = []
     history_mod = []
 
+    # FIXME: In the original code, len(train_edges) = num_nodes because there is only ONE edge between each pair of nodes
+    # however, in our case, there can be multiple edges between nodes.
+    # need to change from [(u,v0), (u,v1), (u,v2) ...] -> (u,[v0,v1,v2...])
+
     #train_edges = np.concatenate([train_edges, val_edges, test_edges])
-    train_edges = [(u,v) for u,v in G.edges()]
+    # dict -> u: [v0, v1, v2....], how many edges every u has, len(train_edges) = num_of_nodes
+    train_edges = {}
+    for u,v in G.edges():
+        if u in train_edges.keys():
+            train_edges[u].append(v)
+        else:
+            train_edges[u] = [v]
+        
+    all_edges = [(u,v) for u,v in G.edges()]
+
+    # dict -> u: [r0, r1, r2....], how many diff types of relations every u has, len(train_relations) = num_of_nodes
+    train_relations = {}
+    for u,v,c in G.edges:
+        if u in train_edges.keys():
+            relation = G.edges[u,v,c]["relation"]
+            if u in train_relations.keys():
+                if relation not in train_relations[u]:
+                    train_relations[u].append(relation)
+            else:
+                train_relations[u] = [relation]
+    
+    # train_relations = [G.edges[u,v,c]["relation"] for u,v,c in G.edges]
+
     n_nodes = G.number_of_nodes()
     print('len(train_edges)', len(train_edges))
     print('calculating normalized_overlap')
-    
     # overlap: the alpha, regularization weight in the paper
     # overlap = for every edge (u,v) in graph G, 
     # = the number of intersection of neighbours of u and v / the number of union of neighbours of u and v
-    overlap = torch.Tensor([normalized_overlap(G,u,v) for u,v in train_edges]).to(device)
+    # FIXME: how to calculate overlap can be hard to tell, because there is more than 1 edge between u and v
+    # how to make it same shape as len(train_edges) (num of nodes)
+    # overlap = torch.Tensor([normalized_overlap(G,u,v) for u,v in all_edges]).to(device)
+    overlap = 0
+
     # overlap = torch.Tensor([(G.degree(u)-G.degree(v))**2 for u,v in train_edges]).to(device)
     # overlap = torch.Tensor([1. for u,v in train_edges]).to(device)
     # overlap = torch.Tensor([float(max(G.degree(u), G.degree(v))**2) for u,v in train_edges]).to(device)
     cur_lr = args.lr
+
     for epoch in range(epochs):
         #np.random.shuffle(train_edges)
 
         t = time.time()
         
-        batch = torch.LongTensor(train_edges)
-        assert batch.shape == (len(train_edges), 2)
+        # FIXME: what exactly is our batch?
+        # the original paper propose: batch = [(u0,v0), (u1,v1)....], and it implicitly included the edge information
+        # but we now have: E = {u0:[v0,v1,v2...], u1: [v3,v5,....]}
+        # and a relation: R = {u0:[r1,r3,...], u1: [r0...]}, |E| = |R|
+        # how to decide the batch for nodes and relations?
 
+        # batch = torch.LongTensor(train_edges)
+        # batch_r = torch.LongTensor(train_relations)
+        # assert batch.shape == (len(train_edges), 2)
+        # assert batch_r.shape[0] == len(train_relations)
+        batch = torch.LongTensor(list(train_edges.keys()))
+        batch_r = batch
         model.train()
         optimizer.zero_grad()
-
-        rand_idx = torch.randperm(batch.size(0))[5000:]
-        batch = batch[rand_idx]
-        w = batch[:,0]
-        c = batch[:,1]
         
-        recon, q, prior = model(w, c, temp)
+        # everytime, train from 5000 edges randomly sampled from all edges, along with the corresponding relations
+        # rand_idx = torch.randperm(batch.size(0))[:5000]
+        # batch = batch[rand_idx]
+        # w = batch[:,0]
+        # c = batch[:,1]
+        # r = batch_r[rand_idx]
+        w = batch
+        c = batch
+        r = batch_r
+        
+        recon, q, prior, link_prob = model(w, c, r, temp)
         loss = loss_function(recon, q, prior, c.to(device), None, None)
 
         if args.lamda > 0:
@@ -288,7 +343,6 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             smoothing_loss = (overlap*tmp).mean()
             # regularization term = lamda (or called overlap) * tmp
             loss += args.lamda * smoothing_loss
-            # embed()
         loss.backward()
         cur_loss = loss.item()
 
@@ -305,9 +359,10 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             model.eval()
             
             # TODO: implement our own performance measure metric
-            # 1. Topic Quality
-            # 2. Link Prediction
+            # 1. Topic Quality -> need to know the true labels?
+            # 2. Link Prediction -> sigmoid(embedding(u) dot_product embedding(v)) = the prob distribution between u and v
 
+            
             # assignment = get_assignment(G, model, categorical_dim)
             # modularity = classical_modularity_calculator(G, assignment)
             

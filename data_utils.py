@@ -770,6 +770,7 @@ def read_graph_data(ds, relabel=True):
     path = trdata_path
     if relabel:
         mapping = {}
+        r_mapping = {}
         G = nx.MultiDiGraph()
         with open(path,"r") as f:
             for line in f:
@@ -784,9 +785,15 @@ def read_graph_data(ds, relabel=True):
                     tmp = mapping[v]
                 except:
                     mapping[v] = len(mapping)
+                # build mapping for relations
+                try:
+                    tmp = r_mapping[r]
+                except:
+                    r_mapping[r] = len(r_mapping)
                 
-                # only u->v is needed
-                G.add_edge(u,v)
+                # only u->v is needed? (or bi-directions)
+                G.add_edge(u,v,relation=r)
+                # G.add_edge(v,u,relation=r)
 
     # # randomly drop 50% of the edges -> randomly take 5000 edges as batch size
     # torch.manual_seed(2022)
@@ -808,6 +815,12 @@ def read_graph_data(ds, relabel=True):
     communities = list(range(12))
 
     G = nx.relabel_nodes(G,mapping)
+
+    # map relations of edges to index-version
+    for u,v,c in G.edges:
+        relation = G.edges[u,v,c]["relation"]
+        G.edges[u,v,c]["relation"] = r_mapping[relation]
+
     return G, nx.adjacency_matrix(G),communities
 
 def load_dataset(ds, relabel=True):
