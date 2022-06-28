@@ -152,8 +152,6 @@ class GCNModelGumbel(nn.Module):
         c = self.node_embeddings(c).to(self.device)
         r = self.relation_embeddings(r).to(self.device)
 
-        # we learn from every edge, thus w,c,r has shape [num_of_edges, embedding_dim]
-
         q = self.community_embeddings(w*c*r) # w * r * c
         # q.shape: [batch_size, categorical_dim]
         # z = self._sample_discrete(q, temp)
@@ -172,12 +170,7 @@ class GCNModelGumbel(nn.Module):
 
         # z.shape [batch_size, categorical_dim]
         new_z = torch.mm(z, self.community_embeddings.weight)
-
-        # decoder needs to output 2 embeddings: 1. R x K, 2. V x K, where 
-        # R: num of relations
-        # K: embedding dimension
-        # V: number of nodes
-        recon = self.decoder(new_z) 
+        recon = self.decoder(new_z)
             
         return recon, F.softmax(q, dim=-1), prior, prob
 
@@ -227,7 +220,6 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     ANNEAL_RATE = 0.00003
     torch.manual_seed(2022)
    
-    # randomly assign some communities number
     G, adj, gt_communities = load_dataset(args.dataset_str)
 
     # adj_orig is the sparse matrix of edge_node adjacency matrix
@@ -242,7 +234,7 @@ if __name__ == '__main__': # execute the following if current file is exectued t
 
     device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
     model = GCNModelGumbel(adj.shape[0], embedding_dim, categorical_dim, args.dropout, device)
-    optimizer = optim.Adam(model.parameters(), lr=lr) # change optmizer
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
     hidden_emb = None
     history_valap = []
