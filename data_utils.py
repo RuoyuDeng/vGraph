@@ -793,24 +793,8 @@ def read_graph_data(ds, relabel=True):
                 
                 # only u->v is needed? (or bi-directions)
                 G.add_edge(u,v,relation=r)
-
-    # # randomly drop 50% of the edges -> randomly take 5000 edges as batch size
-    # torch.manual_seed(2022)
-    # edge_num = G.number_of_edges()
-    # rand_idx = list(torch.randperm(edge_num)[5000:])
-    # all_edges = list(G.edges())
-    # remove_edges = [all_edges[i] for i in rand_idx]
-    # G.remove_edges_from(remove_edges)
-
-    # remove_nodes = []
-    # for u,v in remove_edges:
-    #     if not u in remove_nodes:
-    #         remove_nodes.append(u)
-    #     if not v in remove_nodes:
-    #         remove_nodes.append(v)    
-    # G.remove_nodes_from(remove_nodes)
     
-    #FIXME: ground truth community label?
+    #FIXME: ground truth community label -> randomly
     communities = list(range(12))
 
     G = nx.relabel_nodes(G,mapping)

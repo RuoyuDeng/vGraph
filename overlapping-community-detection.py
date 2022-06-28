@@ -1,6 +1,5 @@
 from __future__ import division
 from __future__ import print_function
-
 from data_utils import load_dataset
 from score_utils import calc_f1, calc_overlap_nmi, calc_jaccard, calc_omega
 from score_utils import normalized_overlap
@@ -15,15 +14,10 @@ import community
 import math
 import networkx as nx
 import numpy as np
-import numpy as np
-import numpy as np
-import numpy as np
 import re
 import scipy.sparse as sp
 import sys
 import time
-import torch
-import torch
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -129,11 +123,10 @@ class GCNModelGumbel(nn.Module):
         self.community_embeddings = nn.Linear(embedding_dim, categorical_dim, bias=False).to(device)
         self.node_embeddings = nn.Embedding(size, embedding_dim)
         self.relation_embeddings = nn.Embedding(size, embedding_dim)
-
-        #self.contextnode_embeddings = nn.Embedding(size, embedding_dim)
+        
 
         self.decoder = nn.Sequential(
-          nn.Linear( embedding_dim, size),
+          nn.Linear(embedding_dim, size),
         ).to(device)
 
         self.init_emb()
@@ -164,15 +157,11 @@ class GCNModelGumbel(nn.Module):
         prior = self.community_embeddings(w)
         prior = F.softmax(prior, dim=-1)
 
-        # w: N x ED, c, N x ED, -> N x N (dot product)
-        wT = torch.transpose(w,0,1)
-        prob = torch.sigmoid(torch.mm(c,wT))
-
         # z.shape [batch_size, categorical_dim]
         new_z = torch.mm(z, self.community_embeddings.weight)
-        recon = self.decoder(new_z)
-            
-        return recon, F.softmax(q, dim=-1), prior, prob
+        # TODO: configure the decoder
+        recon = self.decoder(new_z) 
+        return recon, F.softmax(q, dim=-1), prior
 
 def get_overlapping_community(G, model, tpe=1):
     model.eval()
@@ -225,7 +214,6 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     # adj_orig is the sparse matrix of edge_node adjacency matrix
     adj_orig = adj
     
-    
     # adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)
     adj_orig.eliminate_zeros()
     categorical_dim = len(gt_communities)
@@ -240,40 +228,15 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     history_valap = []
     history_mod = []
 
-    # FIXME: In the original code, len(train_edges) = num_nodes because there is only ONE edge between each pair of nodes
-    # however, in our case, there can be multiple edges between nodes.
-    # need to change from [(u,v0), (u,v1), (u,v2) ...] -> (u,[v0,v1,v2...])
-
-    #train_edges = np.concatenate([train_edges, val_edges, test_edges])
-    # dict -> u: [v0, v1, v2....], how many edges every u has, len(train_edges) = num_of_nodes
-    train_edges = {}
-    for u,v in G.edges():
-        if u in train_edges.keys():
-            train_edges[u].append(v)
-        else:
-            train_edges[u] = [v]
-        
-    all_edges = [(u,v) for u,v in G.edges()]
-
-    # dict -> u: [r0, r1, r2....], how many diff types of relations every u has, len(train_relations) = num_of_nodes
-    train_relations = {}
-    for u,v,c in G.edges:
-        if u in train_edges.keys():
-            relation = G.edges[u,v,c]["relation"]
-            if u in train_relations.keys():
-                if relation not in train_relations[u]:
-                    train_relations[u].append(relation)
-            else:
-                train_relations[u] = [relation]
     
-    # train_relations = [G.edges[u,v,c]["relation"] for u,v,c in G.edges]
+    train_edges = [(u,v) for u,v in G.edges()]
+    train_relations = [G.edges[u,v,c]["relation"] for u,v,c in G.edges]
 
     n_nodes = G.number_of_nodes()
     print('len(train_edges)', len(train_edges))
-    print('calculating normalized_overlap')
+    # print('calculating normalized_overlap')
     # overlap: the alpha, regularization weight in the paper
-    # overlap = for every edge (u,v) in graph G, 
-    # = the number of intersection of neighbours of u and v / the number of union of neighbours of u and v
+    # overlap = for every edge (u,v) in graph G = the number of intersection of neighbours of u and v / the number of union of neighbours of u and v
     # FIXME: how to calculate overlap can be hard to tell, because there is more than 1 edge between u and v
     # how to make it same shape as len(train_edges) (num of nodes)
     # overlap = torch.Tensor([normalized_overlap(G,u,v) for u,v in all_edges]).to(device)
@@ -289,32 +252,23 @@ if __name__ == '__main__': # execute the following if current file is exectued t
 
         t = time.time()
         
-        # FIXME: what exactly is our batch?
-        # the original paper propose: batch = [(u0,v0), (u1,v1)....], and it implicitly included the edge information
-        # but we now have: E = {u0:[v0,v1,v2...], u1: [v3,v5,....]}
-        # and a relation: R = {u0:[r1,r3,...], u1: [r0...]}, |E| = |R|
-        # how to decide the batch for nodes and relations?
+        # FIXME: what exactly is our batch? -> every edge triple (w,c,r)
+        batch = torch.LongTensor(train_edges)
+        batch_r = torch.LongTensor(train_relations)
+        assert batch.shape == (len(train_edges), 2)
+        assert batch_r.shape[0] == len(train_relations)
 
-        # batch = torch.LongTensor(train_edges)
-        # batch_r = torch.LongTensor(train_relations)
-        # assert batch.shape == (len(train_edges), 2)
-        # assert batch_r.shape[0] == len(train_relations)
-        batch = torch.LongTensor(list(train_edges.keys()))
-        batch_r = batch
+        # turn on the training mode
         model.train()
         optimizer.zero_grad()
         
-        # everytime, train from 5000 edges randomly sampled from all edges, along with the corresponding relations
-        # rand_idx = torch.randperm(batch.size(0))[:5000]
-        # batch = batch[rand_idx]
-        # w = batch[:,0]
-        # c = batch[:,1]
-        # r = batch_r[rand_idx]
-        w = batch
-        c = batch
+        # pass the edge (w,c,r) to the model to train, w,c are nodes, r is the relation
+        w = batch[:,0]
+        c = batch[:,1]
         r = batch_r
-        
-        recon, q, prior, link_prob = model(w, c, r, temp)
+
+        # TODO: training with mini batch
+        recon, q, prior = model(w, c, r, temp)
         loss = loss_function(recon, q, prior, c.to(device), None, None)
 
         if args.lamda > 0:
@@ -351,40 +305,12 @@ if __name__ == '__main__': # execute the following if current file is exectued t
             model.eval()
             
             # TODO: implement our own performance measure metric
-            # 1. Topic Quality -> need to know the true labels?
+            # 1. Topic Quality -> need to know the true labels? NO!
+            #                  -> ETM model
             # 2. Link Prediction -> sigmoid(embedding(u) dot_product embedding(v)) = the prob distribution between u and v
+            #                    -> CompGCN
 
-            
-            # assignment = get_assignment(G, model, categorical_dim)
-            # modularity = classical_modularity_calculator(G, assignment)
-            
-            # # communities: group the nodes with same community in the same list,
-            # # it holds all these lists
-            # communities = get_overlapping_community(G, model)
-            # # nmi = calc_overlap_nmi(n_nodes, communities, gt_communities)
-            # f1 = calc_f1(n_nodes, communities, gt_communities)
-            # jaccard = calc_jaccard(n_nodes, communities, gt_communities)
-            # # omega = calc_omega(n_nodes, communities, gt_communities)
-
-            # nmi = 0
-            # omega = 0
-
-            # if args.lamda > 0:
-            #     print("Epoch:", '%04d' % (epoch + 1),
-            #                   "lr:", '{:.5f}'.format(cur_lr),
-            #                   "temp:", '{:.5f}'.format(temp),
-            #                   "train_loss=", "{:.5f}".format(cur_loss),
-            #                   "smoothing_loss=", "{:.5f}".format(args.lamda * smoothing_loss.item()),
-            #                   "modularity=", "{:.5f}".format(modularity),
-            #                   "nmi", nmi, "f1", f1, 'jaccard', jaccard, "omega", omega)
-            # else:
-            #     print("Epoch:", '%04d' % (epoch + 1),
-            #                   "lr:", '{:.5f}'.format(cur_lr),
-            #                   "temp:", '{:.5f}'.format(temp),
-            #                   "train_loss=", "{:.5f}".format(cur_loss),
-            #                   "modularity=", "{:.5f}".format(modularity),
-            #                   "nmi", nmi, "f1", f1, 'jaccard', jaccard, "omega", omega)
-            # logging(args, epoch, cur_loss, f1, nmi, jaccard, modularity)
+        
 
             # cur_lr = cur_lr * .95
             cur_lr = cur_lr * .99
