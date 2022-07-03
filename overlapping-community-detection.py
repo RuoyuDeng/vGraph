@@ -21,6 +21,7 @@ import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
 
 from IPython import embed
 
@@ -157,7 +158,10 @@ class GCNModelGumbel(nn.Module):
         prior = self.community_embeddings(w)
         prior = F.softmax(prior, dim=-1)
 
-        # z.shape [batch_size, categorical_dim]
+        # z.shape: [batch_size, categorical_dim] -> (r,v) where r.shape: [R, K], v.shape: [V, K]
+        # V: number of nodes
+        # R: number of relations
+        # K: dim of embedding
         new_z = torch.mm(z, self.community_embeddings.weight)
         # TODO: configure the decoder
         recon = self.decoder(new_z) 
@@ -198,6 +202,22 @@ def get_overlapping_community(G, model, tpe=1):
     # that belong to that class (community in this case)
     return communities
 
+class GraphDataSet(Dataset):
+    def __init__(self,edges, relations):
+        self.edges = edges
+        self.relations = relations
+    
+    def __len__(self):
+        return len(self.edges)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        u = self.edges[idx][0]
+        v = self.edges[idx][1]
+        r = self.relations[idx]
+        return u,v,r # determine the tensor order in DataLoader iterable
+
 
 if __name__ == '__main__': # execute the following if current file is exectued through cmd line: python3 current_file_name.py [-args]
     args = parser.parse_args() 
@@ -207,6 +227,8 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     temp = 1.
     temp_min = 0.1
     ANNEAL_RATE = 0.00003
+    batch_size = 5000
+    categorical_dim = 12  # decide the cat dim
     torch.manual_seed(2022)
    
     G, adj, gt_communities = load_dataset(args.dataset_str)
@@ -216,7 +238,6 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     
     # adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]), shape=adj_orig.shape)
     adj_orig.eliminate_zeros()
-    categorical_dim = len(gt_communities)
     n_nodes = G.number_of_nodes()
     print(n_nodes, categorical_dim)
 
@@ -231,7 +252,10 @@ if __name__ == '__main__': # execute the following if current file is exectued t
     
     train_edges = [(u,v) for u,v in G.edges()]
     train_relations = [G.edges[u,v,c]["relation"] for u,v,c in G.edges]
+    train_dataset = GraphDataSet(edges=train_edges, relations=train_relations)
+    train_dataloader = DataLoader(train_dataset,batch_size=batch_size)
 
+    
     n_nodes = G.number_of_nodes()
     print('len(train_edges)', len(train_edges))
     # print('calculating normalized_overlap')
@@ -258,18 +282,29 @@ if __name__ == '__main__': # execute the following if current file is exectued t
         assert batch.shape == (len(train_edges), 2)
         assert batch_r.shape[0] == len(train_relations)
 
-        # turn on the training mode
-        model.train()
-        optimizer.zero_grad()
+
+        # every iterable in train_dataloader is a list of 3 tensors, every such list has len <= batch_size
+        # list[0] -> the tensor stores mapped node w
+        # list[1] -> the tensor stores mapped node v
+        # list[2] -> the tensor stores mapped relation r
+        # such order is determined in __getitem__ of our own dataset
+        for edge in train_dataloader:
+            w = edge[0]
+            c = edge[1]
+            r = edge[2]
+            # turn on the training mode
+            model.train()
+            optimizer.zero_grad()
+            # TODO (Done): training with mini batch
+            recon, q, prior = model(w, c, r, temp)
+            loss = loss_function(recon, q, prior, c.to(device), None, None)
+
         
         # pass the edge (w,c,r) to the model to train, w,c are nodes, r is the relation
-        w = batch[:,0]
-        c = batch[:,1]
-        r = batch_r
-
-        # TODO: training with mini batch
-        recon, q, prior = model(w, c, r, temp)
-        loss = loss_function(recon, q, prior, c.to(device), None, None)
+        # w = batch[:,0]
+        # c = batch[:,1]
+        # r = batch_r
+        
 
         if args.lamda > 0:
             tmp_w, tmp_c = batch[:, 0], batch[:, 1]

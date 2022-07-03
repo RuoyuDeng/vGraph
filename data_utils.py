@@ -794,8 +794,8 @@ def read_graph_data(ds, relabel=True):
                 # only u->v is needed? (or bi-directions)
                 G.add_edge(u,v,relation=r)
     
-    #FIXME: ground truth community label -> randomly
-    communities = list(range(12))
+    #FIXME: ground truth community label -> randomly generate one
+    communities = []
 
     G = nx.relabel_nodes(G,mapping)
 
